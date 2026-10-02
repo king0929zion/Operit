@@ -324,3 +324,37 @@ def build_env_with_typescript(version: str) -> dict[str, str]:
     typescript_bin = ensure_typescript(version)
     env["PATH"] = f"{typescript_bin}{os.pathsep}{env['PATH']}"
     return env
+
+
+WORKFLOW_PACKAGE_DIR = (
+    REPO_ROOT / "plugins" / "packages" / "buildin" / "workflow"
+)
+
+
+def ensure_workflow_pnpm_deps(env: dict[str, str] | None = None) -> None:
+    """Installs built-in workflow plugin dependencies with Corepack pnpm.
+
+    Plugin sync (tsc + pack:toolpkg) assumes node_modules is present, which
+    is only true after a manual install on dev machines. Fresh CI runners
+    must install first, honoring the pnpm pin in package.json.
+    """
+    if not (WORKFLOW_PACKAGE_DIR / "package.json").is_file():
+        raise RuntimeError(
+            f"Workflow package.json not found: {WORKFLOW_PACKAGE_DIR}"
+        )
+    if not (WORKFLOW_PACKAGE_DIR / "pnpm-lock.yaml").is_file():
+        raise RuntimeError(
+            f"Workflow pnpm lockfile not found: {WORKFLOW_PACKAGE_DIR}"
+        )
+    corepack = shutil.which("corepack")
+    if corepack is None:
+        raise RuntimeError(
+            "Corepack is required to install workflow dependencies "
+            "(run `corepack enable` first)"
+        )
+    run_with_retries(
+        [corepack, "pnpm", "install", "--frozen-lockfile"],
+        cwd=WORKFLOW_PACKAGE_DIR,
+        env=env,
+        attempts=3,
+    )

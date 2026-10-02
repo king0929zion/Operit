@@ -11,6 +11,7 @@ from common import (
     RELEASE_DIR,
     build_env_with_typescript,
     copy_required_file,
+    ensure_workflow_pnpm_deps,
     flutter_command,
     flutter_pub_get,
     prepare_python_command,
@@ -85,6 +86,9 @@ def main() -> int:
     # repository-managed TypeScript compiler; expose it to every child
     # process (flutter tool, Gradle daemon, hook) via PATH.
     os.environ["PATH"] = build_env_with_typescript("5.9.3")["PATH"]
+    # Plugin sync also assumes workflow node_modules exists (tsc types +
+    # pack:toolpkg); install it on fresh machines.
+    ensure_workflow_pnpm_deps()
     flutter = flutter_command()
     configure_android_flutter_sdk(flutter)
     flutter_pub_get(enforce_lockfile=args.enforce_lockfile)
