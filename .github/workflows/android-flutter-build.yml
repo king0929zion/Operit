@@ -21,6 +21,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache Android NDK
+        id: ndk-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/operit-android-runtime
+          key: android-ndk-r29-beta4
+
+      - name: Cache runtime sources
+        id: runtime-sources
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/android-runtime/downloads
+            tools/android-runtime/sources
+          key: android-runtime-sources-${{ hashFiles('tools/android-runtime/fetch_sources.ps1') }}
+
+      - name: Cache built runtime outputs
+        id: runtime-outputs
+        uses: actions/cache@v4
+        with:
+          path: |
+            apps/flutter/app/android/app/src/main/jniLibs
+            apps/flutter/app/android/app/src/main/assets/android-runtime
+          key: android-runtime-built-${{ hashFiles('tools/android-runtime/fetch_sources.ps1', 'tools/android-runtime/*.sh') }}
+
       - name: Install Android runtime build tools
         run: |
           sudo apt-get update
@@ -41,13 +66,16 @@ jobs:
             xz-utils
 
       - name: Fetch Android runtime sources
+        if: steps.runtime-outputs.outputs.cache-hit != 'true' && steps.runtime-sources.outputs.cache-hit != 'true'
         shell: pwsh
         run: pwsh -NoProfile -File tools/android-runtime/fetch_sources.ps1
 
       - name: Fetch Android NDK
+        if: steps.runtime-outputs.outputs.cache-hit != 'true' && steps.ndk-cache.outputs.cache-hit != 'true'
         run: bash tools/android-runtime/fetch_ndk_wsl.sh
 
       - name: Build Android terminal runtime
+        if: steps.runtime-outputs.outputs.cache-hit != 'true'
         run: |
           export ANDROID_NDK_HOME="$HOME/.cache/operit-android-runtime/android-ndk-r29-beta4"
           bash tools/android-runtime/build_android_tools_wsl.sh
@@ -86,6 +114,33 @@ jobs:
           name: operit2-android-runtime-${{ github.sha }}
           path: apps/flutter/app/android/app/src/main
 
+      - name: Cache FVM Flutter SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/fvm
+          key: fvm-sdk-${{ hashFiles('apps/flutter/app/.fvmrc') }}
+
+      - name: Cache Dart pub packages
+        uses: actions/cache@v4
+        with:
+          path: ~/AppData/Roaming/Pub/Cache
+          key: pub-cache-${{ hashFiles('apps/flutter/app/pubspec.lock') }}
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('apps/flutter/app/android/gradle/wrapper/gradle-wrapper.properties', 'apps/flutter/app/android/settings.gradle.kts', 'apps/flutter/app/pubspec.lock') }}
+
+      - name: Cache bindgen libclang
+        id: libclang-cache
+        uses: actions/cache@v4
+        with:
+          path: target/operit-build-tools
+          key: libclang-win-x64-21.1.8
+
       - name: Install bootstrap Dart
         uses: dart-lang/setup-dart@v1
         with:
@@ -119,7 +174,14 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           targets: aarch64-linux-android
 
+      - name: Cache Rust bridge build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/flutter/native/operit-flutter-bridge -> target
+          cache-provider: github
+
       - name: Prepare Android bindgen libclang
+        if: steps.libclang-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           $version = "21.1.8"
@@ -176,6 +238,37 @@ jobs:
             throw "apps/flutter/app/pubspec.yaml must contain exactly one release version line"
           }
           python tools/build_scripts/build_flutter_android.py --build-name $version[0].Groups[1].Value --build-number $version[0].Groups[2].Value --enforce-lockfile
+
+      - name: Dump generated Dart proxy surface
+        if: always()
+        shell: pwsh
+        run: |
+          $gen = "apps/flutter/app/lib/core/proxy/generated"
+          foreach ($f in @("CoreProxyModels.g.dart", "CoreProxyClients.g.dart")) {
+            $p = Join-Path $gen $f
+            if (Test-Path -LiteralPath $p) {
+              Write-Host "$f bytes=$((Get-Item -LiteralPath $p).Length)"
+            } else {
+              Write-Host "$f MISSING"
+            }
+          }
+          foreach ($t in @("NetworkControlState","RuntimeDeviceSpaceDevice","RuntimeDeviceSpaceTopology","NetworkControlRole","NetworkControlAuditRecord","NetworkControlIdentityAssignment","RuntimePairedDeviceStatus","LinkAccessHostPortMode")) {
+            $c = (Select-String -Path (Join-Path $gen "CoreProxyModels.g.dart") -Pattern "(class|enum) $t\b" -ErrorAction SilentlyContinue | Measure-Object).Count
+            Write-Host "model $t decls=$c"
+          }
+          foreach ($m in @("deviceSpaceControl","deviceSpaceTopology","pairedDeviceStatus","admitDeviceSpaceMember","initializeHostConfig","deviceSpaceControlAudit")) {
+            $c = (Select-String -Path (Join-Path $gen "CoreProxyClients.g.dart") -Pattern "$m\s*\(" -ErrorAction SilentlyContinue | Measure-Object).Count
+            Write-Host "client $m defs=$c"
+          }
+
+      - name: Upload generated proxy for inspection
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operit2-dart-proxy-${{ github.sha }}
+          path: apps/flutter/app/lib/core/proxy/generated/
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Upload Android artifacts
         uses: actions/upload-artifact@v4

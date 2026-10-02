@@ -123,6 +123,8 @@ class LinkAccessHostConfigStore {
         generated.LinkAccessHostPortMode.automatic =>
           LinkAccessHostPortMode.automatic,
         generated.LinkAccessHostPortMode.fixed => LinkAccessHostPortMode.fixed,
+        // Bridge returns dynamic: fall back to automatic for unknown values.
+        _ => LinkAccessHostPortMode.automatic,
       },
       bindAddress: config.bindAddress,
       token: config.token,

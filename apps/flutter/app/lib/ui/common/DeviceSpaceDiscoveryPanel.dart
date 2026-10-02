@@ -388,6 +388,8 @@ class _DeviceSpaceDiscoveryPanelState extends State<DeviceSpaceDiscoveryPanel> {
           generated.RuntimePairedDeviceStatus.offline => false,
           generated.RuntimePairedDeviceStatus.invalid => true,
           generated.RuntimePairedDeviceStatus.removedFromSpace => true,
+          // Bridge returns dynamic: unknown future statuses stay visible.
+          _ => true,
         };
         if (showPairedDevice) {
           visibleDevices.add(device);
