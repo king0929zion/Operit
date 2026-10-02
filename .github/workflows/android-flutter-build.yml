@@ -151,6 +151,12 @@ jobs:
         with:
           node-version: 22
 
+      - name: Enable Corepack pnpm shims
+        shell: pwsh
+        run: |
+          corepack enable
+          corepack pnpm --version
+
       - name: Install Java
         uses: actions/setup-java@v4
         with:
