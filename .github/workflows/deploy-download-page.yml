@@ -1,0 +1,68 @@
+name: Deploy Download Page
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - apps/flutter/app/pubspec.yaml
+      - .github/workflows/deploy-download-page.yml
+  workflow_run:
+    workflows: [Android Flutter Build]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: download-page
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    # workflow_run 仅在构建成功后刷新页面，避免失败构建覆盖下载页
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # workflow_run 事件默认 checkout 不到代码，需要显式指定分支
+          ref: main
+
+      - name: Sync version into site
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER=$(grep -E '^version:' apps/flutter/app/pubspec.yaml | sed -E 's/^version:[[:space:]]*//')
+          if [ -z "$VER" ]; then echo "pubspec version not found"; exit 1; fi
+          PAGE=$(python3 -c "import json;print(json.load(open('site/version.json')).get('page','1.0.0'))")
+          DATE=$(date -u +%Y-%m-%d)
+          SHA=$(git rev-parse --short HEAD)
+          python3 - "$VER" "$PAGE" "$DATE" "$SHA" <<'EOF'
+          import json, sys
+          ver, page, date, sha = sys.argv[1:5]
+          try:
+            data = json.load(open('site/version.json'))
+          except Exception:
+            data = {}
+          data['app'] = ver
+          data['page'] = data.get('page', page)
+          data['updated'] = date
+          data['commit'] = sha
+          data.setdefault('repo', 'king0929zion/Operit')
+          json.dump(data, open('site/version.json', 'w'), ensure_ascii=False, indent=2)
+          print(open('site/version.json').read())
+          EOF
+          test -s site/index.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: site
+          publish_branch: gh-pages
+          commit_message: "deploy download page: ${{ github.sha }}"
+          keep_files: false

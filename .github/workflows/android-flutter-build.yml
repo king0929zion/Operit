@@ -1,6 +1,8 @@
 name: Android Flutter Build
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -182,3 +184,46 @@ jobs:
           path: tools/release/dist/operit2-app-android-arm64-v8a.apk
           if-no-files-found: error
           retention-days: 14
+
+  publish-release:
+    needs: build-android
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: operit2-android-${{ github.sha }}
+          path: dist-apk
+
+      - name: Read app version
+        id: version
+        shell: bash
+        run: |
+          VER=$(grep -E '^version:' apps/flutter/app/pubspec.yaml | sed -E 's/^version:[[:space:]]*//')
+          echo "app_version=$VER" >> "$GITHUB_OUTPUT"
+          echo "App version: $VER"
+          ls -lh dist-apk/
+
+      - name: Publish to android-latest release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: android-latest
+          name: Android latest ${{ steps.version.outputs.app_version }}
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Operit Android 最新签名构建
+
+            - App 版本: ${{ steps.version.outputs.app_version }}
+            - Commit: ${{ github.sha }}
+            - 构建: Android Flutter Build #${{ github.run_number }}
+            - APK: operit2-app-android-arm64-v8a.apk（arm64-v8a, release 签名）
+
+            下载后直接安装。更新下载页版本请同步 `site/version.json` 与 `apps/flutter/app/pubspec.yaml`。
+          files: dist-apk/operit2-app-android-arm64-v8a.apk
