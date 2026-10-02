@@ -177,7 +177,9 @@ jobs:
       - name: Cache Rust bridge build
         uses: Swatinem/rust-cache@v2
         with:
-          workspaces: apps/flutter/native/operit-flutter-bridge -> target
+          workspaces: |
+            apps/flutter/native/operit-flutter-bridge -> target
+            core -> target
           cache-provider: github
 
       # rust-cache restores bridge/target/, so cargo would skip the
@@ -186,6 +188,16 @@ jobs:
       - name: Force proxy codegen rerun
         shell: pwsh
         run: cargo clean --manifest-path apps/flutter/native/operit-flutter-bridge/Cargo.toml -p operit-proxy-local
+
+      # Deterministic codegen: same command as the diagnose job (proven to
+      # emit all types). Must run before the Flutter build, never as a
+      # side effect of the Gradle cargo build.
+      - name: Regenerate Dart proxy
+        shell: pwsh
+        run: |
+          cargo clean --manifest-path core/Cargo.toml -p operit-proxy-local
+          cargo check --manifest-path core/crates/proxy/local/Cargo.toml
+          Get-ChildItem apps/flutter/app/lib/core/proxy/generated/
 
       - name: Prepare Android bindgen libclang
         if: steps.libclang-cache.outputs.cache-hit != 'true'
@@ -251,6 +263,8 @@ jobs:
         continue-on-error: true
         shell: pwsh
         run: |
+          Write-Host "PWD=$(Get-Location)"
+          Get-ChildItem apps/flutter/app/lib/core/proxy -Recurse -ErrorAction SilentlyContinue | Format-Table Name, Length
           $gen = "apps/flutter/app/lib/core/proxy/generated"
           if (-not (Test-Path -LiteralPath $gen)) {
             Write-Host "generated dir MISSING (codegen never ran)"
