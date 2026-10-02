@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from common import (
     DIST_DIR,
     FLUTTER_APP_DIR,
     RELEASE_DIR,
+    WORKFLOW_PACKAGE_DIR,
     build_env_with_typescript,
     copy_required_file,
     ensure_workflow_pnpm_deps,
@@ -89,6 +91,14 @@ def main() -> int:
     # Plugin sync also assumes workflow node_modules exists (tsc types +
     # pack:toolpkg); install it on fresh machines.
     ensure_workflow_pnpm_deps()
+    # Pack the workflow ToolPkg now with streaming output. The later
+    # Gradle/hook sync reruns it only when inputs changed (state file), and
+    # a failure here reports the real tool error immediately instead of
+    # surfacing through three layers of captured logs.
+    corepack = shutil.which("corepack")
+    if corepack is None:
+        raise RuntimeError("Corepack is required to pack the workflow ToolPkg")
+    run([corepack, "pnpm", "run", "pack:toolpkg"], cwd=WORKFLOW_PACKAGE_DIR)
     flutter = flutter_command()
     configure_android_flutter_sdk(flutter)
     flutter_pub_get(enforce_lockfile=args.enforce_lockfile)
