@@ -13,6 +13,7 @@ from common import (
     flutter_pub_get,
     read_properties,
     run,
+    run_with_retries,
     write_properties,
 )
 
@@ -89,7 +90,10 @@ def main() -> int:
         command.extend(["--build-name", args.build_name])
     if args.build_number:
         command.extend(["--build-number", args.build_number])
-    run(command, cwd=FLUTTER_APP_DIR)
+    # Gradle aborts module resolution on mirror 5xx instead of failing over
+    # to the next repository; retry on the same runner where Gradle/daemon
+    # outputs are warm so a mirror hiccup does not waste a full CI cycle.
+    run_with_retries(command, cwd=FLUTTER_APP_DIR, attempts=3)
 
     apk_dir = FLUTTER_APP_DIR / "build" / "app" / "outputs" / "flutter-apk"
     copy_required_file(
