@@ -180,6 +180,13 @@ jobs:
           workspaces: apps/flutter/native/operit-flutter-bridge -> target
           cache-provider: github
 
+      # rust-cache restores bridge/target/, so cargo would skip the
+      # proxy/local build script entirely — but that script is what writes
+      # the generated Dart proxy files. Force it to rerun.
+      - name: Force proxy codegen rerun
+        shell: pwsh
+        run: cargo clean --manifest-path apps/flutter/native/operit-flutter-bridge/Cargo.toml -p operit-proxy-local
+
       - name: Prepare Android bindgen libclang
         if: steps.libclang-cache.outputs.cache-hit != 'true'
         shell: pwsh
@@ -325,3 +332,47 @@ jobs:
 
             下载后直接安装。更新下载页版本请同步 `site/version.json` 与 `apps/flutter/app/pubspec.yaml`。
           files: dist-apk/operit2-app-android-arm64-v8a.apk
+
+  # Fast codegen truth: runs the Dart proxy generator on Linux without the
+  # full Flutter/Android toolchain, so missing-type root causes arrive in
+  # minutes instead of one 20-minute Android cycle.
+  diagnose-proxy-codegen:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      RUST_TOOLCHAIN_VERSION: 1.95.0
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
+
+      - name: Run Dart proxy codegen
+        run: cargo check --manifest-path core/crates/proxy/local/Cargo.toml
+
+      - name: Dump proxy surface
+        if: always()
+        run: |
+          gen=apps/flutter/app/lib/core/proxy/generated
+          ls -la "$gen" || echo "GENERATED DIR MISSING"
+          for f in CoreProxyModels.g.dart CoreProxyClients.g.dart; do
+            if [ -f "$gen/$f" ]; then wc -c "$gen/$f"; else echo "$f MISSING"; fi
+          done
+          for t in NetworkControlState RuntimeDeviceSpaceDevice RuntimeDeviceSpaceTopology NetworkControlRole NetworkControlAuditRecord NetworkControlIdentityAssignment RuntimePairedDeviceStatus LinkAccessHostPortMode CoreSpace GeneratedCoreProxyClients; do
+            echo "model $t decls=$(grep -cE "(class|enum) $t" "$gen/CoreProxyModels.g.dart" || true)"
+          done
+          for m in deviceSpaceControl deviceSpaceTopology pairedDeviceStatus admitDeviceSpaceMember initializeHostConfig deviceSpaceControlAudit deviceSpace; do
+            echo "client $m refs=$(grep -cE "$m\\s*\\(" "$gen/CoreProxyClients.g.dart" || true)"
+          done
+
+      - name: Upload generated proxy
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operit2-dart-proxy-diag-${{ github.sha }}
+          path: apps/flutter/app/lib/core/proxy/generated/
+          if-no-files-found: warn
+          retention-days: 7
