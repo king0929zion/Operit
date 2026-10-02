@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -8,6 +9,7 @@ from common import (
     DIST_DIR,
     FLUTTER_APP_DIR,
     RELEASE_DIR,
+    build_env_with_typescript,
     copy_required_file,
     flutter_command,
     flutter_pub_get,
@@ -79,6 +81,10 @@ def main() -> int:
     prepare_python_command()
     if not args.skip_signing:
         ensure_android_signing()
+    # Plugin sync (Gradle preBuild + Flutter hook) needs the
+    # repository-managed TypeScript compiler; expose it to every child
+    # process (flutter tool, Gradle daemon, hook) via PATH.
+    os.environ["PATH"] = build_env_with_typescript("5.9.3")["PATH"]
     flutter = flutter_command()
     configure_android_flutter_sdk(flutter)
     flutter_pub_get(enforce_lockfile=args.enforce_lockfile)
