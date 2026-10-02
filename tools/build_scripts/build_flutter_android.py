@@ -11,6 +11,7 @@ from common import (
     copy_required_file,
     flutter_command,
     flutter_pub_get,
+    prepare_python_command,
     read_properties,
     run,
     run_with_retries,
@@ -71,6 +72,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    # Gradle sync task and the Flutter native-assets hook both invoke
+    # .venv/Scripts/python.exe; provision it like the macOS/iOS scripts do.
+    # The helper verifies the provisioned interpreter with --version, so a
+    # broken copy fails here in seconds instead of mid-build.
+    prepare_python_command()
     if not args.skip_signing:
         ensure_android_signing()
     flutter = flutter_command()
