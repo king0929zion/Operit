@@ -6,6 +6,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 from pathlib import Path
 
 
@@ -279,7 +280,7 @@ def dart_pub_get(enforce_lockfile: bool = False, env: dict[str, str] | None = No
     command = [dart_command(), "pub", "get"]
     if enforce_lockfile:
         command.append("--enforce-lockfile")
-    run(command, cwd=FLUTTER_APP_DIR, env=env)
+    run_with_retries(command, cwd=FLUTTER_APP_DIR, env=env)
 
 
 def flutter_pub_get(enforce_lockfile: bool = False, env: dict[str, str] | None = None) -> None:
@@ -287,7 +288,35 @@ def flutter_pub_get(enforce_lockfile: bool = False, env: dict[str, str] | None =
     command = [flutter_command(), "pub", "get"]
     if enforce_lockfile:
         command.append("--enforce-lockfile")
-    run(command, cwd=FLUTTER_APP_DIR, env=env)
+    run_with_retries(command, cwd=FLUTTER_APP_DIR, env=env)
+
+
+def run_with_retries(
+    command: list[str | Path],
+    cwd: Path = REPO_ROOT,
+    env: dict[str, str] | None = None,
+    attempts: int = 4,
+) -> None:
+    """Runs a network-facing command with backoff retries.
+
+    Git-hosted pub dependencies (e.g. gitee mirrors) reset connections from
+    some CI regions; a bare failure wastes a full runner provisioning cycle,
+    so retry locally before surfacing the error.
+    """
+    delay = 15
+    for attempt in range(1, attempts + 1):
+        try:
+            run(command, cwd=cwd, env=env)
+            return
+        except RuntimeError:
+            if attempt == attempts:
+                raise
+            print(
+                f"attempt {attempt}/{attempts} failed, retrying in {delay}s...",
+                flush=True,
+            )
+            time.sleep(delay)
+            delay *= 2
 
 
 def build_env_with_typescript(version: str) -> dict[str, str]:

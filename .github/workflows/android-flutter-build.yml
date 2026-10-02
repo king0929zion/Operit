@@ -241,9 +241,14 @@ jobs:
 
       - name: Dump generated Dart proxy surface
         if: always()
+        continue-on-error: true
         shell: pwsh
         run: |
           $gen = "apps/flutter/app/lib/core/proxy/generated"
+          if (-not (Test-Path -LiteralPath $gen)) {
+            Write-Host "generated dir MISSING (codegen never ran)"
+            exit 0
+          }
           foreach ($f in @("CoreProxyModels.g.dart", "CoreProxyClients.g.dart")) {
             $p = Join-Path $gen $f
             if (Test-Path -LiteralPath $p) {
